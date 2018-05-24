@@ -1,21 +1,55 @@
+const admin = require('firebase-admin');
+const g = require('ngeohash')
 const twilio = require('./twilio')
+const serviceAccount = require('./service_account.json')
+const _ = require('lodash')
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: 'https://saliv1-af745.firebaseio.com'
+})
+
+const get_nearby_users_numbers = (lat, lng) => {
+    return new Promise((resolve, reject) => {
+        const ref = admin.database().ref('users')
+            .orderByChild('g5')
+            .startAt(g.neighbor_int(g.encode_int(lat, lng, 26), [-1, -1], 26))
+            .endAt(g.neighbor_int(g.encode_int(lat, lng, 26), [1, 1], 26))
+        
+        ref.once('value', (snapshot) => {
+            const numbers = [];
+            snapshot.forEach((childSnapshot) => {
+                numbers.push(childSnapshot.child('phone').val())
+            })
+            resolve(numbers)
+        })
+        .catch((err) => {
+            console.log(err)
+            reject(err)
+        })
+    })
+    
+}
 
 module.exports = function(req, res) {
-    const numbers = req.body.numbers
     const place = req.body.place
     const lat = req.body.lat
     const lng = req.body.lng 
-    
-    numbers_array = numbers.split(',')
-    message = 'Sent text to: '
-    console.log('Numbers to send to: ', numbers_array)
-    
-    for (let number of numbers_array) {
-        message += `${number} `
-        sendText(number, place, lat, lng)
-    }
 
-    res.status(200).send({ message: message })
+    get_nearby_users_numbers(lat, lng)
+        .then(nums => {
+            const numbers = _.uniq(nums)
+            console.log('Numbers: ', numbers)
+
+            message = 'Sent text to: '
+            
+            for (let number of numbers) {
+                message += `${number} `
+                sendText(number, place, lat, lng)
+            }
+
+            res.status(200).send({ message: message })
+        })
 }
 
 function sendText(number, place, lat, lng) {
